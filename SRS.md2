@@ -1,0 +1,123 @@
+# SRS — Software Requirements Specification
+**Жоба:** CampusRide — Студенттердің бірлескен сапар сервисі  
+**Команда:** Team 3  
+
+---
+
+## 1. Жалпы сипаттама
+* **Мақсаты:** Университет студенттері, оқытушылары және қызметкерлері арасында күнделікті (университетке/жатақханаға) бірлескен сапарларды ұйымдастыруға арналған Android мобильді қосымшасы және Backend жүйесі[span_8](start_span)[span_8](end_span).
+* **Пайдаланушы рөлдері:**
+  * `PASSENGER` (Жолаушы) — сапар іздейді, орын брондайды, жүргізушіні бағалайды[span_9](start_span)[span_9](end_span).
+  * `DRIVER` (Жүргізуші) — көлік деректерін растайды, сапар жариялайды, өтініштерді растайды/қабылдамайды[span_10](start_span)[span_10](end_span).
+  * `ADMIN` (Әкімші) — құжаттарды модерациялайды және жүйені бақылайды.
+
+---
+
+## 2. MVP шекарасы (Scope)
+**MVP құрамына кіреді:**
+1. Университет e-mail-ы арқылы тіркелу және JWT авторизация[span_11](start_span)[span_11](end_span)[span_12](start_span)[span_12](end_span).
+2. Жүргізушінің сапар жариялауы және жолаушының картадан іздеуі (`RideMatchingStrategy` — кемінде 2 стратегия)[span_13](start_span)[span_13](end_span)[span_14](start_span)[span_14](end_span).
+3. `State` паттерніне негізделген брондау және растау циклі (`OPEN → FULL → IN_PROGRESS → COMPLETED / CANCELLED`)[span_15](start_span)[span_15](end_span)[span_16](start_span)[span_16](end_span).
+4. `TripRoomMediator` арқылы жұмыс істейтін нақты уақыттағы сапар чаты (WebSocket)[span_17](start_span)[span_17](end_span)[span_18](start_span)[span_18](end_span).
+5. Рейтинг және сапарлар тарихы[span_19](start_span)[span_19](end_span).
+
+**Final (қосымша функциялар) кезеңіне кіреді:**
+1. Сапар кезінде жүргізушінің орнын нақты уақытта бақылау (WebSocket + GPS)[span_20](start_span)[span_20](end_span)[span_21](start_span)[span_21](end_span).
+2. SOS-батырма және сенімді байланысқа бағытты бөлісу[span_22](start_span)[span_22](end_span)[span_23](start_span)[span_23](end_span).
+3. Апта сайын қайталанатын тұрақты сапарлар[span_24](start_span)[span_24](end_span).
+4. $\text{CO}_2$ үнемдеу статистикасы[span_25](start_span)[span_25](end_span).
+
+---
+
+## 3. Функционалдық талаптар (12 User Stories & Acceptance Criteria)
+
+### US-01: Университет e-mail-ы арқылы тіркелу[span_26](start_span)[span_26](end_span)
+* **As a** студент/оқытушы, **I want to** университеттік электрондық пошта арқылы тіркелгім келеді, **so that** жүйеде тек тексерілген қауымдастық мүшелері болсын[span_27](start_span)[span_27](end_span).
+* **Acceptance Criteria:**
+  * Тек рұқсат етілген университет доменімен (`@kaznaru.edu.kz` немесе оқу орны домені) тіркелуге болады.
+  * Пароль базада тек хэш түрінде (`bcrypt` / `Argon2`) сақталады[span_28](start_span)[span_28](end_span).
+  * Қате формат енгізілсе, API `400 Bad Request` және түсінікті JSON қате қайтарады[span_29](start_span)[span_29](end_span).
+
+### US-02: Жүйеге кіру және JWT авторизация[span_30](start_span)[span_30](end_span)
+* **As a** тіркелген пайдаланушы, **I want to** логин мен пароль арқылы жүйеге кіргім келеді, **so that** өз профилім мен сапарларыма қол жеткізейін.
+* **Acceptance Criteria:**
+  * Сәтті кіргенде Access және Refresh JWT токендері беріледі[span_31](start_span)[span_31](end_span)[span_32](start_span)[span_32](end_span).
+  * Токенсіз қорғалған эндпоинттерге сұраныс `401 Unauthorized` қайтарады[span_33](start_span)[span_33](end_span).
+
+### US-03: Жүргізуші профилін және көлік деректерін толтыру[span_34](start_span)[span_34](end_span)
+* **As a** жүргізуші, **I want to** жүргізуші куәлігім мен көлік мәліметтерін енгізгім келеді, **so that** сапар жариялау құқығын алайын[span_35](start_span)[span_35](end_span).
+* **Acceptance Criteria:**
+  * Көлік маркасы, мемлекеттік нөмірі, түсі және жүргізуші куәлігінің нөмірі сақталады[span_36](start_span)[span_36](end_span).
+  * Құжаттар расталмайынша жүргізуші сапар жариялай алмайды (`403 Forbidden`)[span_37](start_span)[span_37](end_span)[span_38](start_span)[span_38](end_span).
+
+### US-04: Жаңа сапар жариялау[span_39](start_span)[span_39](end_span)
+* **As a** жүргізуші, **I want to** бағытты, уақытты, бос орын санын және бір орын бағасын көрсетіп сапар жариялағым келеді, **so that** жолаушылар таба алсын[span_40](start_span)[span_40](end_span).
+* **Acceptance Criteria:**
+  * Бастапқы және соңғы нүкте координаттары (PostGIS), шығу уақыты, орын саны ($\ge 1$) және бағасы ($\ge 0$) сақталады[span_41](start_span)[span_41](end_span)[span_42](start_span)[span_42](end_span).
+  * Жаңа сапар `OPEN` күйінде құрылады[span_43](start_span)[span_43](end_span).
+
+### US-05: Картадан және радиус бойынша сапар іздеу[span_44](start_span)[span_44](end_span)[span_45](start_span)[span_45](end_span)
+* **As a** жолаушы, **I want to** өз орныма жақын маңдағы белсенді сапарларды картадан көргім келеді, **so that** өзіме ыңғайлы бағытты таңдайын[span_46](start_span)[span_46](end_span)[span_47](start_span)[span_47](end_span).
+* **Acceptance Criteria:**
+  * PostGIS геосұрауы арқылы көрсетілген радиустағы `OPEN` сапарлар тізімі мен картадағы маркерлері қайтарылады[span_48](start_span)[span_48](end_span)[span_49](start_span)[span_49](end_span).
+  * `FULL` немесе `IN_PROGRESS` күйіндегі сапарлар іздеу нәтижесінде көрінбейді[span_50](start_span)[span_50](end_span)[span_51](start_span)[span_51](end_span).
+
+### US-06: Іздеу нәтижелерін стратегия бойынша сұрыптау (`Strategy` паттерні)[span_52](start_span)[span_52](end_span)[span_53](start_span)[span_53](end_span)
+* **As a** жолаушы, **I want to** сапарларды әртүрлі критерий бойынша (ең жақын отыру нүктесі, ең аз айналым, бір факультет) сұрыптағым келеді, **so that** ең тиімді нұсқаны табайын[span_54](start_span)[span_54](end_span)[span_55](start_span)[span_55](end_span).
+* **Acceptance Criteria:**
+  * Клиент сұраныс параметрі арқылы `RideMatchingStrategy` түрін таңдай алады[span_56](start_span)[span_56](end_span).
+  * Әр стратегия әртүрлі реттіліктегі нәтиже қайтарады[span_57](start_span)[span_57](end_span).
+
+### US-07: Сапардан орын брондау (`State` паттерні)[span_58](start_span)[span_58](end_span)[span_59](start_span)[span_59](end_span)[span_60](start_span)[span_60](end_span)
+* **As a** жолаушы, **I want to** таңдалған сапардан бос орын брондағым келеді, **so that** жүргізуші мені сапарға қоссын[span_61](start_span)[span_61](end_span).
+* **Acceptance Criteria:**
+  * Брондау `PENDING` күйінде жасалады[span_62](start_span)[span_62](end_span).
+  * Басталған (`IN_PROGRESS`) немесе орны жоқ (`FULL`) сапарды брондау әрекеті `409 Conflict` қайтарады[span_63](start_span)[span_63](end_span)[span_64](start_span)[span_64](end_span).
+
+### US-08: Брондауды растау немесе қабылдамау[span_65](start_span)[span_65](end_span)[span_66](start_span)[span_66](end_span)
+* **As a** жүргізуші, **I want to** жолаушының өтінішін растағым немесе бас тартқым келеді, **so that** жолаушылар құрамын басқарайын[span_67](start_span)[span_67](end_span).
+* **Acceptance Criteria:**
+  * Расталған кезде брондау `CONFIRMED` күйіне өтеді және бос орын саны 1-ге азаяды[span_68](start_span)[span_68](end_span).
+  * Соңғы орын брондалғанда сапар күйі автоматты түрде `FULL` болып өзгереді[span_69](start_span)[span_69](end_span)[span_70](start_span)[span_70](end_span).
+
+### US-09: Брондаудан немесе сапардан бас тарту[span_71](start_span)[span_71](end_span)
+* **As a** жолаушы/жүргізуші, **I want to** жоспарым өзгерсе брондауды болдырмағым келеді, **so that** орын басқаларға босасын.
+* **Acceptance Criteria:**
+  * Жолаушы бас тартса, брондау `CANCELLED` болады, бос орын қайта қосылады және жолаушы сапар чатынан шығарылады (`TripRoomMediator`)[span_72](start_span)[span_72](end_span).
+
+### US-10: Сапар қатысушыларының нақты уақыттағы чаты (`Mediator` паттерні)[span_73](start_span)[span_73](end_span)[span_74](start_span)[span_74](end_span)[span_75](start_span)[span_75](end_span)
+* **As a** сапар қатысушысы, **I want to** жүргізушімен және басқа жолаушылармен чатта сөйлескім келеді, **so that** кездесу орнын нақтылайын[span_76](start_span)[span_76](end_span).
+* **Acceptance Criteria:**
+  * Хабарламалар WebSocket арқылы нақты уақытта жеткізіледі (< 1 секунд)[span_77](start_span)[span_77](end_span)[span_78](start_span)[span_78](end_span).
+  * Чатқа тек осы сапардың жүргізушісі мен `CONFIRMED` жолаушылары қол жеткізе алады[span_79](start_span)[span_79](end_span).
+
+### US-11: Сапарды бастау және аяқтау өмірлік циклі[span_80](start_span)[span_80](end_span)
+* **As a** жүргізуші, **I want to** сапарды бастау және аяқтау батырмаларын басқым келеді, **so that** сапар мәртебесі жаңарсын.
+* **Acceptance Criteria:**
+  * Күйлер тізбегі қатаң сақталады: `OPEN / FULL → IN_PROGRESS → COMPLETED`[span_81](start_span)[span_81](end_span).
+  * Аяқталмаған сапарға пікір/рейтинг қалдыруға рұқсат етілмейді[span_82](start_span)[span_82](end_span).
+
+### US-12: Сапардан кейін өзара рейтинг және пікір қалдыру[span_83](start_span)[span_83](end_span)[span_84](start_span)[span_84](end_span)
+* **As a** жолаушы/жүргізуші, **I want to** аяқталған сапардан кейін 1–5 аралығында баға қойғым келеді, **so that** сенімді пайдаланушылар рейтингі қалыптассын[span_85](start_span)[span_85](end_span).
+* **Acceptance Criteria:**
+  * Тек `COMPLETED` күйіндегі сапар қатысушылары бір-бірін 1 рет бағалай алады[span_86](start_span)[span_86](end_span).
+  * Пайдаланушының орташа рейтингі профильде жаңарады.
+
+### US-13: Жүргізушінің геолокациясын нақты уақытта бақылау (Final)[span_87](start_span)[span_87](end_span)[span_88](start_span)[span_88](end_span)
+* **As a** жолаушы, **I want to** сапар кезінде жүргізушінің қозғалысын картадан көргім келеді, **so that** келу уақытын бақылайын[span_89](start_span)[span_89](end_span).
+* **Acceptance Criteria:**
+  * Жүргізуші координаталары WebSocket және Kotlin Flow (`Observer`) арқылы экранда жаңарып отырады[span_90](start_span)[span_90](end_span).
+
+### US-14: SOS қауіпсіздік батырмасы (Final)[span_91](start_span)[span_91](end_span)[span_92](start_span)[span_92](end_span)
+* **As a** жолаушы, **I want to** төтенше жағдайда SOS батырмасын басып, ағымдағы координатамды сенімді байланысқа жібергім келеді, **so that** қауіпсіздігім қорғалсын[span_93](start_span)[span_93](end_span)[span_94](start_span)[span_94](end_span).
+* **Acceptance Criteria:**
+  * Батырма басылғанда ағымдағы GPS координата, сапар ID-і және жүргізуші деректері сенімді контактіге жіберіледі[span_95](start_span)[span_95](end_span).
+
+---
+
+## 4. Функционалдық емес талаптар (NFR)
+1. **Өнімділік:** REST API жауап беру уақыты $\le 300\text{ мс}$; WebSocket чат хабарламасының жету уақыты $< 1\text{ сек}$[span_96](start_span)[span_96](end_span).
+2. **Қауіпсіздік:** JWT аутентификация, парольдерді `bcrypt`/`Argon2` арқылы хэштеу, құпия кілттерді тек `.env` файлында сақтау, кіріс деректерін валидациялау[span_97](start_span)[span_97](end_span).
+3. **Офлайн тұрақтылық:** Интернет үзілгенде мобильді қосымша құламайды (crash болмайды), Room кэшіндегі соңғы сапар деректерін көрсетеді және желі жоқтығы туралы хабарлама береді[span_98](start_span)[span_98](end_span).
+4. **Сенімділік және инфрақұрылым:** Бүкіл backend және дерекқор (PostgreSQL + PostGIS) таза машинада бір `docker compose up` командасымен іске қосылады[span_99](start_span)[span_99](end_span)[span_100](start_span)[span_100](end_span).
+5. **Код сапасы және тестілеу:** Сервис/домен қабатын тестпен жабу $\ge 60\%$ ($\ge 40$ unit, $\ge 10$ integration, $\ge 2$ E2E тест), CI (GitHub Actions) арқылы линтер мен тесттердің автоматты тексерілуі[span_101](start_span)[span_101](end_span)[span_102](start_span)[span_102](end_span)[span_103](start_span)[span_103](end_span).
